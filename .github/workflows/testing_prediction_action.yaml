@@ -11,31 +11,35 @@ jobs:
         with:
           path: ./
 
-      - name: local action with raw yaml
-        id: raw-prediction
+      - name: Test single workload file
+        id: single-workload
+        uses: ./
+        with:
+          log_level: "info"
+          path: ./test/workload.yaml
+
+      - name: Output single workload prediction
+        run: |
+          echo "${{ steps.single-workload.outputs.PREDICTION_TABLE }}"
+
+      - name: Test directory with multiple workloads
+        id: multi-workload
+        uses: ./
+        with:
+          log_level: "info"
+          path: ./test/subdir
+
+      - name: Output multi workload prediction
+        run: |
+          echo "${{ steps.multi-workload.outputs.PREDICTION_TABLE }}"
+
+      - name: Test workload with unsupported resources
+        id: unsupported-resources
         uses: ./
         with:
           log_level: "warn"
-          path: ./test
+          path: ./test/subdir/multi-with-unsupported.yaml
 
-      # - name: output raw yaml prediction
-      #   run: |
-      #     echo "${{ steps.raw-prediction.outputs.PREDICTION_TABLE }}"
-
-      # - name: download templated kubecost yaml
-      #   run: |
-      #     curl \
-      #         https://raw.githubusercontent.com/kubecost/cost-analyzer-helm-chart/develop/kubecost.yaml \
-      #         --silent \
-      #         --output ./kubecost.yaml
-
-      - name: local action with kubecost yaml
-        id: kubecost-raw-prediction
-        uses: ./
-        with:
-          log_level: "debug"
-          path: ./kubecost.yaml
-
-      - name: output kubecost yaml prediction
+      - name: Output unsupported resources prediction
         run: |
-          echo "${{ steps.kubecost-raw-prediction.outputs.PREDICTION_TABLE }}"
+          echo "${{ steps.unsupported-resources.outputs.PREDICTION_TABLE }}"
