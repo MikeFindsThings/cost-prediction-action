@@ -18,16 +18,16 @@ jobs:
           log_level: "warn"
           path: ./test
 
-      - name: output raw yaml prediction
-        run: |
-          echo "${{ steps.raw-prediction.outputs.PREDICTION_TABLE }}"
+      # - name: output raw yaml prediction
+      #   run: |
+      #     echo "${{ steps.raw-prediction.outputs.PREDICTION_TABLE }}"
 
-      - name: download templated kubecost yaml
-        run: |
-          curl \
-              https://raw.githubusercontent.com/kubecost/cost-analyzer-helm-chart/develop/kubecost.yaml \
-              --silent \
-              --output ./kubecost.yaml
+      # - name: download templated kubecost yaml
+      #   run: |
+      #     curl \
+      #         https://raw.githubusercontent.com/kubecost/cost-analyzer-helm-chart/develop/kubecost.yaml \
+      #         --silent \
+      #         --output ./kubecost.yaml
 
       - name: local action with kubecost yaml
         id: kubecost-raw-prediction
