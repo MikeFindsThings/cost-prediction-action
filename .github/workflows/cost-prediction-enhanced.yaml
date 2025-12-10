@@ -17,7 +17,7 @@ jobs:
         id: prediction
         uses: ./action-enhanced
         with:
-          path: ./test
+          path: test
           log_level: "info"
 
       - name: Comment on PR with basic prediction
@@ -57,7 +57,7 @@ jobs:
         id: prediction
         uses: ./action-enhanced
         with:
-          path: ./test
+          path: test
           log_level: "info"
           enable_delta_mode: "true"
           base_ref: "main"
@@ -132,7 +132,7 @@ jobs:
         id: prediction
         uses: ./action-enhanced
         with:
-          path: ./test
+          path: test
           log_level: "info"
           enable_delta_mode: "true"
           base_ref: "main"
