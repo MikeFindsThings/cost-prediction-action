@@ -19,7 +19,7 @@ jobs:
 
       - name: Test delta mode with base workload
         id: delta-test
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/base-workload.yaml
           enable_delta_mode: "true"
@@ -52,7 +52,7 @@ jobs:
 
       - name: Test with lenient thresholds (should pass)
         id: threshold-pass
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/increased-workload.yaml
           enable_delta_mode: "true"
@@ -80,7 +80,7 @@ jobs:
 
       - name: Test with strict absolute threshold (should fail)
         id: threshold-fail
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/increased-workload.yaml
           enable_delta_mode: "true"
@@ -109,7 +109,7 @@ jobs:
 
       - name: Test with strict percentage threshold (should fail)
         id: threshold-fail
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/increased-workload.yaml
           enable_delta_mode: "true"
@@ -138,7 +138,7 @@ jobs:
 
       - name: Test with warning only mode
         id: threshold-warn
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/increased-workload.yaml
           enable_delta_mode: "true"
@@ -166,7 +166,7 @@ jobs:
 
       - name: Test with decreased workload
         id: decrease-test
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/delta-test/decreased-workload.yaml
           enable_delta_mode: "true"
@@ -191,7 +191,7 @@ jobs:
 
       - name: Test without delta mode
         id: no-delta
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/workload.yaml
           enable_delta_mode: "false"
@@ -222,7 +222,7 @@ jobs:
 
       - name: Run prediction
         id: json-test
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test/workload.yaml
           enable_delta_mode: "true"

@@ -18,7 +18,7 @@ Delta mode compares the cost prediction of your current branch against a base br
 
 ```yaml
 - name: Run prediction with delta mode
-  uses: ./action-enhanced.yaml
+  uses: ./action-enhanced
   with:
     path: ./manifests
     enable_delta_mode: "true"
@@ -51,7 +51,7 @@ Cost thresholds allow you to automatically fail a workflow if cost increases exc
 
 ```yaml
 - name: Run prediction with thresholds
-  uses: ./action-enhanced.yaml
+  uses: ./action-enhanced
   with:
     path: ./manifests
     enable_delta_mode: "true"
@@ -167,7 +167,7 @@ jobs:
           fetch-depth: 0  # Required for delta mode
       
       - name: Check cost impact
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./k8s
           enable_delta_mode: "true"
@@ -189,7 +189,7 @@ jobs:
           fetch-depth: 0
       
       - name: Enforce cost limits
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./k8s
           enable_delta_mode: "true"
@@ -214,7 +214,7 @@ jobs:
           fetch-depth: 0
       
       - name: Monitor cost changes
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./k8s
           enable_delta_mode: "true"
@@ -240,7 +240,7 @@ jobs:
       
       - name: Run prediction
         id: prediction
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./k8s
           enable_delta_mode: "true"

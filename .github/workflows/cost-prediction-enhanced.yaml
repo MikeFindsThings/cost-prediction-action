@@ -15,7 +15,7 @@ jobs:
 
       - name: Run basic prediction
         id: prediction
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test
           log_level: "info"
@@ -55,7 +55,7 @@ jobs:
 
       - name: Run delta prediction with thresholds
         id: prediction
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test
           log_level: "info"
@@ -130,7 +130,7 @@ jobs:
 
       - name: Run delta prediction (warning only)
         id: prediction
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ./test
           log_level: "info"
@@ -169,7 +169,7 @@ jobs:
 
       - name: Run prediction for ${{ matrix.scenario.name }}
         id: prediction
-        uses: ./action-enhanced.yaml
+        uses: ./action-enhanced
         with:
           path: ${{ matrix.scenario.path }}
           log_level: "info"
