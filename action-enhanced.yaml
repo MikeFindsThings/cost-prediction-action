@@ -1,0 +1,197 @@
+name: "Kubecost Cost Prediction Enhanced"
+author: "Michael Sturdivant (Kubecost)"
+description: "Predict the cost impact of code changes to K8s object specs using Kubecost with delta/diff mode and cost thresholds"
+
+inputs:
+  path:
+    description: 'The specific path of a workload or directory of workloads to predict'
+    required: true
+  kubecost_api_path:
+    description: 'URL of the Kubecost API. Example: https://kubecost.example.com:9090/model'
+    required: false
+  log_level:
+    description: "The log level of the action code"
+    required: false
+    default: "info"
+  
+  # Delta/Diff Mode inputs
+  enable_delta_mode:
+    description: 'Enable delta/diff mode to compare costs between base and current branch'
+    required: false
+    default: 'false'
+  base_ref:
+    description: 'Base branch/ref to compare against (e.g., main, master). Required if enable_delta_mode is true'
+    required: false
+    default: 'main'
+  
+  # Cost Threshold inputs
+  max_cost_increase:
+    description: 'Maximum allowed monthly cost increase in dollars (e.g., "100.00"). Action fails if exceeded'
+    required: false
+    default: ''
+  max_cost_percentage:
+    description: 'Maximum allowed cost increase percentage (e.g., "20" for 20%). Action fails if exceeded'
+    required: false
+    default: ''
+  fail_on_threshold:
+    description: 'Whether to fail the workflow when cost thresholds are exceeded'
+    required: false
+    default: 'true'
+
+outputs:
+  PREDICTION_TABLE:
+    description: 'The ASCII table-formatted prediction'
+    value: ${{ steps.format-output.outputs.prediction_table }}
+  PREDICTION_JSON:
+    description: 'JSON formatted prediction data'
+    value: ${{ steps.format-output.outputs.prediction_json }}
+  TOTAL_MONTHLY_COST:
+    description: 'Total monthly cost prediction'
+    value: ${{ steps.format-output.outputs.total_cost }}
+  COST_CHANGE:
+    description: 'Cost change amount (delta mode only)'
+    value: ${{ steps.format-output.outputs.cost_change }}
+  COST_CHANGE_PERCENTAGE:
+    description: 'Cost change percentage (delta mode only)'
+    value: ${{ steps.format-output.outputs.cost_change_percentage }}
+  THRESHOLD_EXCEEDED:
+    description: 'Whether cost thresholds were exceeded'
+    value: ${{ steps.check-thresholds.outputs.threshold_exceeded }}
+  BASE_COST:
+    description: 'Base branch cost (delta mode only)'
+    value: ${{ steps.format-output.outputs.base_cost }}
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Run prediction on current branch
+    - name: Run prediction on current branch
+      id: current-prediction
+      uses: kubecost/cost-prediction-action@v0.1.1
+      with:
+        path: ${{ inputs.path }}
+        kubecost_api_path: ${{ inputs.kubecost_api_path }}
+        log_level: ${{ inputs.log_level }}
+
+    # Step 2: Checkout base branch and run prediction (delta mode only)
+    - name: Checkout base branch
+      if: inputs.enable_delta_mode == 'true'
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ inputs.base_ref }}
+        path: ./base-branch
+
+    - name: Run prediction on base branch
+      if: inputs.enable_delta_mode == 'true'
+      id: base-prediction
+      uses: kubecost/cost-prediction-action@v0.1.1
+      with:
+        path: ./base-branch/${{ inputs.path }}
+        kubecost_api_path: ${{ inputs.kubecost_api_path }}
+        log_level: ${{ inputs.log_level }}
+
+    # Step 3: Parse and compare predictions
+    - name: Parse and compare predictions
+      id: format-output
+      shell: bash
+      run: |
+        # Parse current prediction
+        CURRENT_TABLE="${{ steps.current-prediction.outputs.PREDICTION_TABLE }}"
+        echo "prediction_table<<EOF" >> $GITHUB_OUTPUT
+        echo "$CURRENT_TABLE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # Extract total cost from current prediction
+        # This is a simplified parser - adjust based on actual table format
+        CURRENT_COST=$(echo "$CURRENT_TABLE" | grep -i "total" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.00")
+        echo "total_cost=$CURRENT_COST" >> $GITHUB_OUTPUT
+        
+        # Delta mode calculations
+        if [ "${{ inputs.enable_delta_mode }}" == "true" ]; then
+          BASE_TABLE="${{ steps.base-prediction.outputs.PREDICTION_TABLE }}"
+          BASE_COST=$(echo "$BASE_TABLE" | grep -i "total" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0.00")
+          echo "base_cost=$BASE_COST" >> $GITHUB_OUTPUT
+          
+          # Calculate cost change
+          COST_CHANGE=$(echo "$CURRENT_COST - $BASE_COST" | bc)
+          echo "cost_change=$COST_CHANGE" >> $GITHUB_OUTPUT
+          
+          # Calculate percentage change
+          if [ "$BASE_COST" != "0.00" ]; then
+            COST_CHANGE_PCT=$(echo "scale=2; ($COST_CHANGE / $BASE_COST) * 100" | bc)
+          else
+            COST_CHANGE_PCT="0.00"
+          fi
+          echo "cost_change_percentage=$COST_CHANGE_PCT" >> $GITHUB_OUTPUT
+          
+          # Create JSON output
+          cat > prediction.json <<EOF
+        {
+          "current_cost": $CURRENT_COST,
+          "base_cost": $BASE_COST,
+          "cost_change": $COST_CHANGE,
+          "cost_change_percentage": $COST_CHANGE_PCT,
+          "base_ref": "${{ inputs.base_ref }}"
+        }
+        EOF
+        else
+          # Create JSON output without delta
+          cat > prediction.json <<EOF
+        {
+          "current_cost": $CURRENT_COST
+        }
+        EOF
+        fi
+        
+        echo "prediction_json=$(cat prediction.json | jq -c .)" >> $GITHUB_OUTPUT
+
+    # Step 4: Check cost thresholds
+    - name: Check cost thresholds
+      id: check-thresholds
+      shell: bash
+      run: |
+        THRESHOLD_EXCEEDED="false"
+        THRESHOLD_MESSAGE=""
+        
+        CURRENT_COST="${{ steps.format-output.outputs.total_cost }}"
+        COST_CHANGE="${{ steps.format-output.outputs.cost_change }}"
+        COST_CHANGE_PCT="${{ steps.format-output.outputs.cost_change_percentage }}"
+        
+        # Check absolute cost increase threshold
+        if [ -n "${{ inputs.max_cost_increase }}" ] && [ "${{ inputs.enable_delta_mode }}" == "true" ]; then
+          MAX_INCREASE="${{ inputs.max_cost_increase }}"
+          if (( $(echo "$COST_CHANGE > $MAX_INCREASE" | bc -l) )); then
+            THRESHOLD_EXCEEDED="true"
+            THRESHOLD_MESSAGE="${THRESHOLD_MESSAGE}Cost increase of \$$COST_CHANGE exceeds maximum allowed increase of \$$MAX_INCREASE. "
+          fi
+        fi
+        
+        # Check percentage cost increase threshold
+        if [ -n "${{ inputs.max_cost_percentage }}" ] && [ "${{ inputs.enable_delta_mode }}" == "true" ]; then
+          MAX_PCT="${{ inputs.max_cost_percentage }}"
+          if (( $(echo "$COST_CHANGE_PCT > $MAX_PCT" | bc -l) )); then
+            THRESHOLD_EXCEEDED="true"
+            THRESHOLD_MESSAGE="${THRESHOLD_MESSAGE}Cost increase of ${COST_CHANGE_PCT}% exceeds maximum allowed percentage of ${MAX_PCT}%. "
+          fi
+        fi
+        
+        echo "threshold_exceeded=$THRESHOLD_EXCEEDED" >> $GITHUB_OUTPUT
+        echo "threshold_message=$THRESHOLD_MESSAGE" >> $GITHUB_OUTPUT
+        
+        # Output threshold check results
+        if [ "$THRESHOLD_EXCEEDED" == "true" ]; then
+          echo "::warning::Cost threshold exceeded: $THRESHOLD_MESSAGE"
+          
+          if [ "${{ inputs.fail_on_threshold }}" == "true" ]; then
+            echo "::error::$THRESHOLD_MESSAGE"
+            exit 1
+          fi
+        else
+          echo "::notice::Cost thresholds check passed"
+        fi
+
+branding:
+  color: green
+  icon: dollar-sign
+
+# Made with Bob
