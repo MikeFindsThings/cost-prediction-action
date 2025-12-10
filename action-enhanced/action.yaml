@@ -74,19 +74,19 @@ runs:
         log_level: ${{ inputs.log_level }}
 
     # Step 2: Checkout base branch and run prediction (delta mode only)
-    - name: Checkout base branch
+    - name: Checkout base branch to temp directory
       if: inputs.enable_delta_mode == 'true'
       uses: actions/checkout@v3
       with:
         ref: ${{ inputs.base_ref }}
-        path: ./base-branch
+        path: /tmp/base-branch
 
     - name: Run prediction on base branch
       if: inputs.enable_delta_mode == 'true'
       id: base-prediction
       uses: kubecost/cost-prediction-action@v0.1.1
       with:
-        path: ./base-branch/${{ inputs.path }}
+        path: /tmp/base-branch/${{ inputs.path }}
         kubecost_api_path: ${{ inputs.kubecost_api_path }}
         log_level: ${{ inputs.log_level }}
 
