@@ -320,3 +320,6 @@ Potential improvements for future versions:
 - Historical cost tracking
 - Integration with cost allocation labels
 - Support for custom cost parsing rules
+- Support for env-label for environment specific pricing logic
+- Dynamic thresholds based on Kubecost Budgets API
+- Multi-cluster prediciton support
