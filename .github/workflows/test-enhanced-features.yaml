@@ -164,11 +164,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Replace base-workload with decreased version for this test
+        run: |
+          cp test/delta-test/decreased-workload.yaml test/delta-test/base-workload.yaml
+
       - name: Test with decreased workload
         id: decrease-test
         uses: ./action-enhanced
         with:
-          path: test/delta-test/decreased-workload.yaml
+          path: test/delta-test/base-workload.yaml
           enable_delta_mode: "true"
           base_ref: "main"
 
