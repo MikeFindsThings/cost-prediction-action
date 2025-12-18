@@ -57,7 +57,7 @@ jobs:
         id: prediction
         uses: ./action-enhanced
         with:
-          path: test/delta-test/increased-workload.yaml
+          path: test/delta-test/base-workload.yaml
           log_level: "info"
           enable_delta_mode: "true"
           base_ref: "main"
