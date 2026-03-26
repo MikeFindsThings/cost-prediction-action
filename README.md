@@ -39,17 +39,25 @@ below.
     # is a directory and process all .yaml/.yml files it finds.
     path: ./repo
 
-# Write/update a comment with the prediction results.
-- name: Update PR with prediction results
-  uses: edumserrano/find-create-or-update-comment@v1
+# Find existing PR comment, then create or update it with prediction results.
+- name: Find existing PR comment
+  uses: kubecost/github-actions/find-comment@main
+  id: find-comment
   with:
+    token: ${{ secrets.GITHUB_TOKEN }}
     issue-number: ${{ github.event.pull_request.number }}
-    body-includes: '<!-- kubecost-prediction-results -->'
     comment-author: 'github-actions[bot]'
+    body-includes: '<!-- kubecost-prediction-results -->'
+- name: Create or update PR comment with prediction results
+  uses: kubecost/github-actions/create-or-update-comment@main
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    issue-number: ${{ github.event.pull_request.number }}
+    comment-id: ${{ steps.find-comment.outputs.comment-id }}
     edit-mode: replace
     body: |
       <!-- kubecost-prediction-results -->
-      
+
       ## Kubecost's total cost prediction for K8s YAML Manifests in this PR
 
       \```
@@ -135,17 +143,25 @@ jobs:
           #
           # kubecost_api_path: "http://localhost:9090/model"
 
-      # Write/update a comment with the prediction results.
-      - name: Update PR with prediction results
-        uses: edumserrano/find-create-or-update-comment@v1
+      # Find existing PR comment, then create or update it with prediction results.
+      - name: Find existing PR comment
+        uses: kubecost/github-actions/find-comment@main
+        id: find-comment
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
-          body-includes: '<!-- kubecost-prediction-results -->'
           comment-author: 'github-actions[bot]'
+          body-includes: '<!-- kubecost-prediction-results -->'
+      - name: Create or update PR comment with prediction results
+        uses: kubecost/github-actions/create-or-update-comment@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
           edit-mode: replace
           body: |
             <!-- kubecost-prediction-results -->
-            
+
             ## Kubecost's total cost prediction for K8s YAML Manifests in this PR
 
             \```
