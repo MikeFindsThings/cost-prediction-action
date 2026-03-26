@@ -37,6 +37,20 @@ inputs:
     description: 'Whether to fail the workflow when cost thresholds are exceeded'
     required: false
     default: 'true'
+  
+  # Budget Check inputs
+  budget_check_enabled:
+    description: 'Enable budget validation against Kubecost budgets'
+    required: false
+    default: 'false'
+  budget_id:
+    description: 'ID of the budget in Kubecost to check against (required if budget_check_enabled is true)'
+    required: false
+    default: ''
+  fail_on_budget_exceeded:
+    description: 'Whether to fail the workflow when predicted cost would exceed budget'
+    required: false
+    default: 'true'
 
 outputs:
   PREDICTION_TABLE:
@@ -60,6 +74,21 @@ outputs:
   BASE_COST:
     description: 'Base branch cost (delta mode only)'
     value: ${{ steps.format-output.outputs.base_cost }}
+  BUDGET_STATUS:
+    description: 'Status of budget check (WITHIN_BUDGET, EXCEEDS_BUDGET, NOT_CHECKED, ERROR)'
+    value: ${{ steps.check-budget.outputs.budget_status }}
+  BUDGET_REMAINING:
+    description: 'Remaining budget amount in dollars'
+    value: ${{ steps.check-budget.outputs.budget_remaining }}
+  BUDGET_TOTAL:
+    description: 'Total budget allocation in dollars'
+    value: ${{ steps.check-budget.outputs.budget_total }}
+  BUDGET_CURRENT_SPEND:
+    description: 'Current spend against the budget'
+    value: ${{ steps.check-budget.outputs.budget_current_spend }}
+  BUDGET_UTILIZATION_PERCENTAGE:
+    description: 'Current budget utilization percentage'
+    value: ${{ steps.check-budget.outputs.budget_utilization_percentage }}
 
 runs:
   using: "composite"
@@ -188,6 +217,143 @@ runs:
           fi
         else
           echo "::notice::Cost thresholds check passed"
+        fi
+
+    # Step 5: Check budget (if enabled)
+    - name: Query and validate Kubecost budget
+      id: check-budget
+      shell: bash
+      run: |
+        # Initialize outputs
+        echo "budget_status=NOT_CHECKED" >> $GITHUB_OUTPUT
+        echo "budget_remaining=0.00" >> $GITHUB_OUTPUT
+        echo "budget_total=0.00" >> $GITHUB_OUTPUT
+        echo "budget_current_spend=0.00" >> $GITHUB_OUTPUT
+        echo "budget_utilization_percentage=0.00" >> $GITHUB_OUTPUT
+        
+        # Skip if budget check is not enabled
+        if [ "${{ inputs.budget_check_enabled }}" != "true" ]; then
+          echo "::notice::Budget check is not enabled, skipping"
+          exit 0
+        fi
+        
+        # Validate required inputs
+        if [ -z "${{ inputs.kubecost_api_path }}" ]; then
+          echo "::warning::Budget check enabled but kubecost_api_path not configured"
+          echo "budget_status=ERROR" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        if [ -z "${{ inputs.budget_id }}" ]; then
+          echo "::error::Budget check enabled but budget_id not provided"
+          echo "budget_status=ERROR" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # Query Kubecost budget API
+        BUDGET_ID="${{ inputs.budget_id }}"
+        API_PATH="${{ inputs.kubecost_api_path }}"
+        
+        echo "::notice::Querying budget: $BUDGET_ID from $API_PATH"
+        
+        # Make API call to get budget information
+        BUDGET_RESPONSE=$(curl -s -f "${API_PATH}/budget?id=${BUDGET_ID}" || echo "")
+        
+        if [ -z "$BUDGET_RESPONSE" ]; then
+          echo "::error::Failed to retrieve budget from Kubecost API"
+          echo "budget_status=ERROR" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # Check if response contains error
+        if echo "$BUDGET_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+          ERROR_MSG=$(echo "$BUDGET_RESPONSE" | jq -r '.error')
+          echo "::error::Kubecost API returned error: $ERROR_MSG"
+          echo "budget_status=ERROR" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # Parse budget response
+        BUDGET_DATA=$(echo "$BUDGET_RESPONSE" | jq -r '.data')
+        
+        if [ "$BUDGET_DATA" == "null" ] || [ -z "$BUDGET_DATA" ]; then
+          echo "::error::Budget with ID '$BUDGET_ID' not found"
+          echo "budget_status=ERROR" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # Extract budget information
+        BUDGET_TOTAL=$(echo "$BUDGET_DATA" | jq -r '.spendLimit // 0')
+        CURRENT_SPEND=$(echo "$BUDGET_DATA" | jq -r '.currentSpend // 0')
+        BUDGET_NAME=$(echo "$BUDGET_DATA" | jq -r '.name // "Unknown"')
+        
+        # Calculate remaining budget
+        REMAINING_BUDGET=$(echo "$BUDGET_TOTAL - $CURRENT_SPEND" | bc)
+        
+        # Calculate utilization percentage
+        if [ "$BUDGET_TOTAL" != "0" ]; then
+          UTILIZATION_PCT=$(echo "scale=2; ($CURRENT_SPEND / $BUDGET_TOTAL) * 100" | bc)
+        else
+          UTILIZATION_PCT="0.00"
+        fi
+        
+        # Get predicted cost (use delta if enabled, otherwise total)
+        if [ "${{ inputs.enable_delta_mode }}" == "true" ]; then
+          PREDICTED_COST="${{ steps.format-output.outputs.cost_change }}"
+          COST_TYPE="incremental"
+        else
+          PREDICTED_COST="${{ steps.format-output.outputs.total_cost }}"
+          COST_TYPE="total"
+        fi
+        
+        # Handle negative predicted costs (cost reduction)
+        if (( $(echo "$PREDICTED_COST < 0" | bc -l) )); then
+          echo "::notice::Predicted cost is negative (cost reduction), budget check passes"
+          BUDGET_STATUS="WITHIN_BUDGET"
+        else
+          # Calculate new total spend after deployment
+          NEW_TOTAL_SPEND=$(echo "$CURRENT_SPEND + $PREDICTED_COST" | bc)
+          
+          # Check if budget would be exceeded
+          if (( $(echo "$NEW_TOTAL_SPEND > $BUDGET_TOTAL" | bc -l) )); then
+            BUDGET_STATUS="EXCEEDS_BUDGET"
+            BUDGET_EXCEEDED="true"
+          else
+            BUDGET_STATUS="WITHIN_BUDGET"
+            BUDGET_EXCEEDED="false"
+          fi
+        fi
+        
+        # Set outputs
+        echo "budget_status=$BUDGET_STATUS" >> $GITHUB_OUTPUT
+        echo "budget_remaining=$REMAINING_BUDGET" >> $GITHUB_OUTPUT
+        echo "budget_total=$BUDGET_TOTAL" >> $GITHUB_OUTPUT
+        echo "budget_current_spend=$CURRENT_SPEND" >> $GITHUB_OUTPUT
+        echo "budget_utilization_percentage=$UTILIZATION_PCT" >> $GITHUB_OUTPUT
+        
+        # Output budget information
+        echo "::notice::Budget Check Results:"
+        echo "::notice::  Budget Name: $BUDGET_NAME"
+        echo "::notice::  Budget ID: $BUDGET_ID"
+        echo "::notice::  Total Budget: \$$BUDGET_TOTAL"
+        echo "::notice::  Current Spend: \$$CURRENT_SPEND"
+        echo "::notice::  Remaining Budget: \$$REMAINING_BUDGET"
+        echo "::notice::  Utilization: ${UTILIZATION_PCT}%"
+        echo "::notice::  Predicted $COST_TYPE Cost: \$$PREDICTED_COST"
+        
+        # Fail if budget exceeded and configured to fail
+        if [ "$BUDGET_EXCEEDED" == "true" ]; then
+          OVERAGE=$(echo "$NEW_TOTAL_SPEND - $BUDGET_TOTAL" | bc)
+          ERROR_MSG="Budget would be exceeded! Predicted $COST_TYPE cost of \$$PREDICTED_COST would result in total spend of \$$NEW_TOTAL_SPEND, exceeding budget of \$$BUDGET_TOTAL by \$$OVERAGE"
+          
+          echo "::warning::$ERROR_MSG"
+          
+          if [ "${{ inputs.fail_on_budget_exceeded }}" == "true" ]; then
+            echo "::error::$ERROR_MSG"
+            exit 1
+          fi
+        else
+          echo "::notice::Budget check passed - deployment is within budget"
         fi
 
 branding:

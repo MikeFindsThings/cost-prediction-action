@@ -1,12 +1,13 @@
-# Enhanced Features: Delta Mode and Cost Thresholds
+# Enhanced Features: Delta Mode, Cost Thresholds, and Budget Validation
 
 This document describes the enhanced features added to the Kubecost Cost Prediction Action.
 
 ## Overview
 
-The enhanced action adds two major features:
+The enhanced action adds three major features:
 1. **Delta/Diff Mode** - Compare costs between branches to see the impact of changes
 2. **Cost Threshold Checks** - Automatically fail workflows when cost increases exceed configured limits
+3. **Budget Validation** - Validate predicted costs against Kubecost budgets to prevent budget overruns
 
 ## Delta/Diff Mode
 
@@ -312,6 +313,337 @@ If your prediction table has a different format, the parsing may need adjustment
 **Problem:** Costs show as 0.00
 **Solution:** Check that the prediction table format matches expected format with "total" line
 
+## Budget Validation
+
+### What is Budget Validation?
+
+Budget validation checks predicted workload costs against Kubecost budgets to ensure deployments stay within allocated budget limits. This prevents cost overruns before changes are merged.
+
+### How to Enable
+
+```yaml
+- name: Run prediction with budget check
+  uses: ./action-enhanced
+  with:
+    path: ./manifests
+    kubecost_api_path: ${{ secrets.KUBECOST_API_PATH }}
+    budget_check_enabled: "true"
+    budget_id: "team-alpha-budget"
+    fail_on_budget_exceeded: "true"
+```
+
+### Budget API Integration
+
+The action queries the Kubecost Budgets API to retrieve:
+- Total budget allocation (`spendLimit`)
+- Current spend (`currentSpend`)
+- Budget window and interval
+- Budget name and ID
+
+API Endpoint: `GET {kubecost_api_path}/budget?id={budget_id}`
+
+### Budget Check Logic
+
+1. **Query Budget** - Retrieves budget information from Kubecost
+2. **Get Predicted Cost** - Uses total cost or delta cost (if delta mode enabled)
+3. **Calculate Impact** - Adds predicted cost to current spend
+4. **Validate** - Checks if new total would exceed budget limit
+5. **Report** - Sets outputs and fails workflow if configured
+
+### Budget Outputs
+
+| Output | Description |
+|--------|-------------|
+| `BUDGET_STATUS` | Status: WITHIN_BUDGET, EXCEEDS_BUDGET, NOT_CHECKED, ERROR |
+| `BUDGET_REMAINING` | Remaining budget in dollars |
+| `BUDGET_TOTAL` | Total budget allocation |
+| `BUDGET_CURRENT_SPEND` | Current spend against budget |
+| `BUDGET_UTILIZATION_PERCENTAGE` | Current utilization percentage |
+
+### Budget Check with Delta Mode
+
+When combined with delta mode, budget validation checks only the incremental cost impact:
+
+```yaml
+- name: Budget check with delta mode
+  uses: ./action-enhanced
+  with:
+    path: ./manifests
+    kubecost_api_path: ${{ secrets.KUBECOST_API_PATH }}
+    enable_delta_mode: "true"
+    base_ref: "main"
+    budget_check_enabled: "true"
+    budget_id: "team-alpha-budget"
+```
+
+This is recommended for most use cases as it validates only the cost change, not the total workload cost.
+
+### Example Scenarios
+
+#### Scenario 1: Within Budget
+```
+Budget Total: $5,000.00
+Current Spend: $3,200.00
+Remaining: $1,800.00
+Predicted Cost: $500.00
+New Total: $3,700.00
+
+Result: ✓ WITHIN_BUDGET - Workflow continues
+```
+
+#### Scenario 2: Exceeds Budget
+```
+Budget Total: $5,000.00
+Current Spend: $4,500.00
+Remaining: $500.00
+Predicted Cost: $800.00
+New Total: $5,300.00
+
+Result: ✗ EXCEEDS_BUDGET - Workflow fails (if fail_on_budget_exceeded is true)
+Error: Budget would be exceeded by $300.00
+```
+
+#### Scenario 3: Cost Reduction
+```
+Budget Total: $5,000.00
+Current Spend: $4,500.00
+Predicted Cost: -$200.00 (reduction)
+
+Result: ✓ WITHIN_BUDGET - Cost reductions always pass
+```
+
+### Warning Mode
+
+Set `fail_on_budget_exceeded: "false"` to only warn without failing:
+
+```yaml
+- name: Budget check - warning only
+  uses: ./action-enhanced
+  with:
+    path: ./manifests
+    budget_check_enabled: "true"
+    budget_id: "team-budget"
+    fail_on_budget_exceeded: "false"  # Only warn
+```
+
+### Combined Checks
+
+Budget validation works alongside cost threshold checks:
+
+```yaml
+- name: Complete cost governance
+  uses: ./action-enhanced
+  with:
+    path: ./manifests
+    kubecost_api_path: ${{ secrets.KUBECOST_API_PATH }}
+    enable_delta_mode: "true"
+    base_ref: "main"
+    
+    # Threshold checks
+    max_cost_increase: "100.00"
+    max_cost_percentage: "20"
+    fail_on_threshold: "true"
+    
+    # Budget checks
+    budget_check_enabled: "true"
+    budget_id: "team-alpha-budget"
+    fail_on_budget_exceeded: "true"
+```
+
+Both checks are independent - the workflow fails if either check fails.
+
+### Error Handling
+
+The budget check handles various error scenarios:
+
+| Scenario | Behavior |
+|----------|----------|
+| Budget not found | Fails with error message |
+| API unavailable | Fails with connectivity error |
+| Invalid budget ID | Fails with validation error |
+| Missing kubecost_api_path | Skips check with warning |
+| Budget check disabled | Skips check silently |
+
+### Budget Check Requirements
+
+1. **Kubecost API Access** - `kubecost_api_path` must be configured
+2. **Valid Budget ID** - Budget must exist in Kubecost
+3. **API Connectivity** - Action runner must have network access to Kubecost
+4. **Budget API Enabled** - Kubecost instance must have budgets feature enabled
+
+## Complete Input Reference (Updated)
+
+### Required Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Path to workload file or directory | (required) |
+
+### Optional Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `kubecost_api_path` | URL of Kubecost API | (none) |
+| `log_level` | Log level (debug, info, warn, error) | `info` |
+| `enable_delta_mode` | Enable cost comparison with base branch | `false` |
+| `base_ref` | Base branch for comparison | `main` |
+| `max_cost_increase` | Max allowed cost increase in dollars | (none) |
+| `max_cost_percentage` | Max allowed cost increase percentage | (none) |
+| `fail_on_threshold` | Fail workflow when threshold exceeded | `true` |
+| `budget_check_enabled` | Enable budget validation | `false` |
+| `budget_id` | Kubecost budget ID to check against | (none) |
+| `fail_on_budget_exceeded` | Fail when budget would be exceeded | `true` |
+
+## Complete Output Reference (Updated)
+
+### Standard Outputs
+
+| Output | Description |
+|--------|-------------|
+| `PREDICTION_TABLE` | ASCII table of cost prediction |
+| `PREDICTION_JSON` | JSON formatted prediction data |
+| `TOTAL_MONTHLY_COST` | Total monthly cost |
+| `THRESHOLD_EXCEEDED` | Whether thresholds were exceeded (true/false) |
+
+### Delta Mode Outputs
+
+| Output | Description |
+|--------|-------------|
+| `BASE_COST` | Cost from base branch |
+| `COST_CHANGE` | Absolute cost difference |
+| `COST_CHANGE_PERCENTAGE` | Percentage cost change |
+
+### Budget Validation Outputs
+
+| Output | Description |
+|--------|-------------|
+| `BUDGET_STATUS` | WITHIN_BUDGET, EXCEEDS_BUDGET, NOT_CHECKED, ERROR |
+| `BUDGET_REMAINING` | Remaining budget in dollars |
+| `BUDGET_TOTAL` | Total budget allocation |
+| `BUDGET_CURRENT_SPEND` | Current spend against budget |
+| `BUDGET_UTILIZATION_PERCENTAGE` | Budget utilization percentage |
+
+## Usage Examples (Updated)
+
+### Example 5: Budget Validation
+
+```yaml
+name: Budget Check
+on: [pull_request]
+
+jobs:
+  validate-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check against team budget
+        id: budget-check
+        uses: ./action-enhanced
+        with:
+          path: ./k8s
+          kubecost_api_path: ${{ secrets.KUBECOST_API_PATH }}
+          budget_check_enabled: "true"
+          budget_id: "team-alpha-budget"
+          fail_on_budget_exceeded: "true"
+      
+      - name: Report budget status
+        run: |
+          echo "Budget Status: ${{ steps.budget-check.outputs.BUDGET_STATUS }}"
+          echo "Budget Total: \$${{ steps.budget-check.outputs.BUDGET_TOTAL }}"
+          echo "Current Spend: \$${{ steps.budget-check.outputs.BUDGET_CURRENT_SPEND }}"
+          echo "Remaining: \$${{ steps.budget-check.outputs.BUDGET_REMAINING }}"
+          echo "Utilization: ${{ steps.budget-check.outputs.BUDGET_UTILIZATION_PERCENTAGE }}%"
+```
+
+### Example 6: Complete Cost Governance
+
+```yaml
+name: Complete Cost Governance
+on: [pull_request]
+
+jobs:
+  enforce-all-limits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Comprehensive cost validation
+        id: cost-check
+        uses: ./action-enhanced
+        with:
+          path: ./k8s
+          kubecost_api_path: ${{ secrets.KUBECOST_API_PATH }}
+          
+          # Delta mode
+          enable_delta_mode: "true"
+          base_ref: "main"
+          
+          # Cost thresholds
+          max_cost_increase: "100.00"
+          max_cost_percentage: "15"
+          fail_on_threshold: "true"
+          
+          # Budget validation
+          budget_check_enabled: "true"
+          budget_id: "team-alpha-budget"
+          fail_on_budget_exceeded: "true"
+      
+      - name: Create detailed PR comment
+        uses: actions/github-script@v6
+        if: always()
+        with:
+          script: |
+            const output = `## 💰 Cost Governance Report
+            
+            ### Cost Impact
+            - **Current Cost:** \`\$${{ steps.cost-check.outputs.TOTAL_MONTHLY_COST }}\`
+            - **Base Cost:** \`\$${{ steps.cost-check.outputs.BASE_COST }}\`
+            - **Change:** \`${{ steps.cost-check.outputs.COST_CHANGE }}\` (\`${{ steps.cost-check.outputs.COST_CHANGE_PERCENTAGE }}%\`)
+            - **Threshold Check:** ${{ steps.cost-check.outputs.THRESHOLD_EXCEEDED == 'true' && '❌ EXCEEDED' || '✅ PASSED' }}
+            
+            ### Budget Status
+            - **Budget:** \`${{ steps.cost-check.outputs.BUDGET_TOTAL }}\`
+            - **Current Spend:** \`\$${{ steps.cost-check.outputs.BUDGET_CURRENT_SPEND }}\`
+            - **Remaining:** \`\$${{ steps.cost-check.outputs.BUDGET_REMAINING }}\`
+            - **Utilization:** \`${{ steps.cost-check.outputs.BUDGET_UTILIZATION_PERCENTAGE }}%\`
+            - **Status:** ${{ steps.cost-check.outputs.BUDGET_STATUS == 'WITHIN_BUDGET' && '✅ WITHIN BUDGET' || '❌ EXCEEDS BUDGET' }}
+            
+            <details>
+            <summary>Detailed Breakdown</summary>
+            
+            \`\`\`
+            ${{ steps.cost-check.outputs.PREDICTION_TABLE }}
+            \`\`\`
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+```
+
+## Troubleshooting (Updated)
+
+### Budget validation not working
+
+**Problem:** Budget check is skipped
+**Solution:** Ensure `budget_check_enabled` is set to "true" and `kubecost_api_path` is configured
+
+### Budget not found error
+
+**Problem:** API returns budget not found
+**Solution:** Verify the budget ID exists in Kubecost and is spelled correctly
+
+### API connectivity issues
+
+**Problem:** Cannot reach Kubecost API
+**Solution:** Ensure the action runner has network access to Kubecost (may require port forwarding or VPN)
+
 ## Future Enhancements
 
 Potential improvements for future versions:
@@ -321,5 +653,7 @@ Potential improvements for future versions:
 - Integration with cost allocation labels
 - Support for custom cost parsing rules
 - Support for env-label for environment specific pricing logic
-- Dynamic thresholds based on Kubecost Budgets API
-- Multi-cluster prediciton support
+- Multi-cluster prediction support
+- Budget forecasting and trend analysis
+- Support for multiple budget checks in single workflow
+- Integration with budget actions/notifications
