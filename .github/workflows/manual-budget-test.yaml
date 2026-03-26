@@ -1,0 +1,60 @@
+name: Manual Budget Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      budget_id:
+        description: 'Budget ID to test against'
+        required: true
+        type: string
+      fail_on_exceed:
+        description: 'Fail if budget exceeded'
+        required: false
+        type: boolean
+        default: true
+      enable_delta:
+        description: 'Enable delta mode'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  test-budget:
+    runs-on: ubuntu-latest
+    name: Test Budget Validation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Test budget validation
+        id: test
+        uses: ./action-enhanced
+        with:
+          path: test/sample-deployment.yaml
+          kubecost_api_path: 'https://demo.kubecost.io/model'
+          budget_check_enabled: 'true'
+          budget_id: ${{ inputs.budget_id }}
+          fail_on_budget_exceeded: ${{ inputs.fail_on_exceed }}
+          enable_delta_mode: ${{ inputs.enable_delta }}
+          base_ref: 'main'
+      
+      - name: Display results
+        if: always()
+        run: |
+          echo "### 💰 Budget Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Budget ID:** ${{ inputs.budget_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.test.outputs.BUDGET_STATUS }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Budget:** \$${{ steps.test.outputs.BUDGET_TOTAL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Current Spend:** \$${{ steps.test.outputs.BUDGET_CURRENT_SPEND }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Remaining:** \$${{ steps.test.outputs.BUDGET_REMAINING }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Utilization:** ${{ steps.test.outputs.BUDGET_UTILIZATION_PERCENTAGE }}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Predicted Cost:** \$${{ steps.test.outputs.TOTAL_MONTHLY_COST }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ inputs.enable_delta }}" == "true" ]; then
+            echo "**Cost Change:** \$${{ steps.test.outputs.COST_CHANGE }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Change %:** ${{ steps.test.outputs.COST_CHANGE_PERCENTAGE }}%" >> $GITHUB_STEP_SUMMARY
+          fi
