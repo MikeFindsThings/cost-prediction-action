@@ -60,10 +60,14 @@ jobs:
         id: delta
         uses: ./action-enhanced
         with:
-          path: test/workload.yaml
+          # base-workload.yaml is small on main (2 replicas, 500m/512Mi)
+          # but large on demo/delta-showcase (5 replicas, 1CPU/1Gi).
+          # Run this scenario from the demo/delta-showcase branch to show
+          # a real cost increase vs main.
+          path: test/delta-test/base-workload.yaml
           kubecost_api_path: "https://demo.kubecost.io/model"
           enable_delta_mode: "true"
-          base_ref: ${{ github.event.repository.default_branch }}
+          base_ref: "main"
 
       - name: Show delta results
         run: |
@@ -91,10 +95,12 @@ jobs:
         id: cost
         uses: ./action-enhanced
         with:
-          path: test/sample-deployment.yaml
+          # Run from demo/delta-showcase: big vs main's small — shows real delta
+          # but thresholds are generous so it passes
+          path: test/delta-test/base-workload.yaml
           kubecost_api_path: "https://demo.kubecost.io/model"
           enable_delta_mode: "true"
-          base_ref: ${{ github.event.repository.default_branch }}
+          base_ref: "main"
           max_cost_increase: "10000.00"
           max_cost_percentage: "500"
           fail_on_threshold: "true"
@@ -123,10 +129,11 @@ jobs:
         id: cost
         uses: ./action-enhanced
         with:
-          path: test/workload.yaml
+          # Run from demo/delta-showcase: big vs main's small — strict thresholds fail
+          path: test/delta-test/base-workload.yaml
           kubecost_api_path: "https://demo.kubecost.io/model"
           enable_delta_mode: "true"
-          base_ref: ${{ github.event.repository.default_branch }}
+          base_ref: "main"
           max_cost_increase: "0.01"   # Any increase > $0.01 fails
           max_cost_percentage: "0.01" # Any increase > 0.01% fails
           fail_on_threshold: "true"
